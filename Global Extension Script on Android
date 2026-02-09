@@ -1,0 +1,170 @@
+const main = (config) => {
+  // ================= 0. 环境检测与基础设置 =================
+  const engine = config?.meta?.engine?.toLowerCase() || "";
+  const IS_CLASH_META = engine.includes("meta") || engine.includes("mihomo") || engine.includes("stash");
+
+  const BlockWords = /流量|官网|网址|到期|重置|过期|通知|群|subscription|aff|专线/i;
+
+  // ================= 1. 核心工具函数 =================
+  const normalizeProxies = (proxies = []) => {
+    return [...new Set((proxies || [])
+      .map(p => {
+        if (typeof p === 'string') return p;
+        return p?.name ?? p?.ps ?? null;
+      })
+      .filter(name => typeof name === 'string' && name.trim() !== "")
+      .filter(name => !BlockWords.test(name))
+    )];
+  };
+
+  const allProxies = normalizeProxies(config.proxies);
+  if (allProxies.length === 0) return config;
+
+  // ================= 2. 节点筛选 =================
+  
+  const MAX_PEERS = 80;
+  const performanceSafeProxies = allProxies.slice(0, MAX_PEERS);
+
+  // 1. AI 组 (严格限制：新/日/美/台)
+  const aiKeywords = /新加坡|SG|Singapore|日本|JP|Japan|美国|US|States|台湾|TW|Taiwan/i;
+  const aiProxies = allProxies.filter(name => aiKeywords.test(name));
+  const safeAiProxies = aiProxies.length > 0 ? aiProxies.slice(0, MAX_PEERS) : performanceSafeProxies;
+
+  // 2. 香港组 (社交主力 & TG)
+  const hkKeywords = /香港|HK|Hong Kong/i;
+  const hkProxies = allProxies.filter(name => hkKeywords.test(name));
+  const safeHkProxies = hkProxies.length > 0 ? hkProxies.slice(0, MAX_PEERS) : performanceSafeProxies;
+
+  // 3. TG 组 (已删除，直接复用香港组或 Social 组)
+
+  // ================= 3. 策略组定义 =================
+  const newGroups = [];
+
+  // ⚙️ AI 自动优选 (极速模式)
+  newGroups.push({
+    name: "⚙️ AI-自动优选",
+    type: "url-test",
+    url: "https://www.gstatic.com/generate_204", 
+    interval: 600, 
+    tolerance: 150, 
+    lazy: false,    // 极速响应
+    proxies: safeAiProxies 
+  });
+
+  // ⚙️ 香港 自动优选 (社交 & TG 极速模式)
+  newGroups.push({
+    name: "⚙️ 香港-自动优选",
+    type: "url-test",
+    url: "https://www.gstatic.com/generate_204", 
+    interval: 600, 
+    tolerance: 50,  
+    lazy: false,    // 极速响应
+    proxies: safeHkProxies
+  });
+
+  // (已删除 ⚙️ TG-自动优选)
+
+  // 🕹️ 主策略组
+  newGroups.push({
+    name: "🤖 AI与搜索",
+    type: "select",
+    proxies: ["⚙️ AI-自动优选", ...safeAiProxies] 
+  });
+
+  // 📺 视频社交 (兼管 Telegram)
+  newGroups.push({
+    name: "📺 视频社交",
+    type: "select",
+    // 逻辑：优先走香港自动优选 -> 手动香港 -> AI 组兜底
+    proxies: ["⚙️ 香港-自动优选", ...safeHkProxies, "⚙️ AI-自动优选"] 
+  });
+
+  // (已删除 📲 Telegram 策略组)
+
+  newGroups.push({
+    name: "🛑 拦截",
+    type: "select",
+    proxies: ["REJECT"]
+  });
+
+  // 清洗旧配置
+  if (!config["proxy-groups"]) config["proxy-groups"] = [];
+  config["proxy-groups"] = config["proxy-groups"].filter(
+    oldGroup => !newGroups.some(newGroup => newGroup.name === oldGroup.name)
+  );
+  config["proxy-groups"].unshift(...newGroups);
+
+  // ================= 4. 规则集 =================
+  
+  const QuicBlockRules = IS_CLASH_META ? [
+    "AND,((DST-PORT,443),(NETWORK,UDP),(DOMAIN-KEYWORD,google)),🛑 拦截",
+    "AND,((DST-PORT,443),(NETWORK,UDP),(DOMAIN-KEYWORD,gvt)),🛑 拦截"
+  ] : [];
+
+  const AiRules = [
+    "PROCESS-NAME,com.anthropic.claude,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,segment.io,🤖 AI与搜索", 
+    "DOMAIN-SUFFIX,sentry.io,🤖 AI与搜索",
+    "DOMAIN-KEYWORD,claude,🤖 AI与搜索",
+    "DOMAIN-KEYWORD,anthropic,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,services.googleapis.cn,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,googleapis.cn,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,xn--ngstr-lra8j.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,gvt1.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,notebooklm.google.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,gemini.google.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,bard.google.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,copilot.microsoft.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,bing.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,openai.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,chatgpt.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,perplexity.ai,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,googleapis.com,🤖 AI与搜索",
+    "DOMAIN-SUFFIX,x.ai,🤖 AI与搜索"
+  ];
+
+  // 🟢 修改：Telegram 规则指向 "📺 视频社交"
+  const TgRules = [
+    "DOMAIN-SUFFIX,telegram.org,📺 视频社交",
+    "DOMAIN-SUFFIX,telegram.me,📺 视频社交",
+    "DOMAIN-SUFFIX,t.me,📺 视频社交",
+    "IP-CIDR,91.108.0.0/16,📺 视频社交",
+    "IP-CIDR,149.154.160.0/20,📺 视频社交",
+    "IP-CIDR6,2001:b28:f23d::/48,📺 视频社交",
+    "IP-CIDR6,2001:67c:4e8::/48,📺 视频社交",
+    "IP-CIDR6,2001:b28:f23f::/48,📺 视频社交"
+  ];
+
+  const SocialRules = [
+    "DOMAIN-SUFFIX,discord.com,📺 视频社交",
+    "DOMAIN-SUFFIX,discordapp.com,📺 视频社交",
+    "DOMAIN-SUFFIX,discordapp.net,📺 视频社交",
+    "DOMAIN-SUFFIX,discord.gg,📺 视频社交",
+    "DOMAIN-SUFFIX,reddit.com,📺 视频社交",
+    "DOMAIN-SUFFIX,redd.it,📺 视频社交",
+    "DOMAIN-SUFFIX,redditmedia.com,📺 视频社交",
+    "DOMAIN-SUFFIX,quora.com,📺 视频社交",
+    "DOMAIN-SUFFIX,instagram.com,📺 视频社交",
+    "DOMAIN-SUFFIX,cdninstagram.com,📺 视频社交",
+    "DOMAIN-SUFFIX,facebook.com,📺 视频社交",
+    "DOMAIN-SUFFIX,twitter.com,📺 视频社交",
+    "DOMAIN-SUFFIX,x.com,📺 视频社交",
+    "DOMAIN-SUFFIX,tiktok.com,📺 视频社交",
+    "DOMAIN-SUFFIX,youtube.com,📺 视频社交",
+    "DOMAIN-SUFFIX,googlevideo.com,📺 视频社交",
+    "DOMAIN-SUFFIX,youtu.be,📺 视频社交",
+    "DOMAIN-SUFFIX,netflix.com,📺 视频社交"
+  ];
+
+  // ================= 5. 规则合并 =================
+  const finalRules = [
+    ...QuicBlockRules,
+    ...TgRules,
+    ...AiRules,
+    ...SocialRules, 
+    ...(config.rules || []) 
+  ];
+
+  config.rules = finalRules;
+  return config;
+};
