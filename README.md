@@ -1,4 +1,4 @@
-# Clash-Verge-Global-Extension-Script
+# Clash-Verge-and-FLClash-Global-Extension-Script
 用于分流，使网站访问速度更快/可访问。
 
 ## Feature
@@ -14,7 +14,7 @@
 - 为了防止节点频繁变化，tolerance设置为150，即如果分组里，当前使用节点和最快节点延迟差距小于150ms，就不切换。
 
 ## 环境 
-### 电脑端：clash verge
+### 电脑端：Clash verge
 - 在订阅内找到全局扩展脚本进行修改
   
 ### 手机端：FLClash
