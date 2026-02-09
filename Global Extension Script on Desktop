@@ -94,23 +94,28 @@ function main(config) {
       interval: 86400, // 24小时测一次
       tolerance: 150,
       lazy: true,
-      // ⚠️ 修改点：这里去掉了 hidden: true，让它显示出来
+      // 保持显示，方便手动切换
       proxies: allValidProxies
     });
     createdGroupNames.add(globalFallbackName);
 
-    // === 核心组件 2: 高级分组生成器 ===
+    // === 核心组件 2: 高级分组生成器 (包含你的优化逻辑) ===
     function createAdvancedGroup(groupName, icon, proxiesList) {
+      
       // 1. 纯净测速组 (Layer 1)
       const speedTestName = `⚡ ${groupName}-测速`;
       newProxyGroups.push({
         name: speedTestName,
         type: "url-test",
         url: "http://www.gstatic.com/generate_204",
-        interval: 600,
-        tolerance: 150,
+        
+        // 【参数设定】: 10分钟测一次，容差150ms
+        // 确保10分钟检查时，如果主节点复活且速度正常，能够果断切换
+        interval: 600, 
+        tolerance: 150, 
+        
         lazy: true,
-        hidden: true, // 🙈【隐藏】后台测速逻辑，不显示
+        hidden: true, // 🙈 隐藏
         proxies: proxiesList
       });
       createdGroupNames.add(speedTestName);
@@ -119,10 +124,14 @@ function main(config) {
       const autoFailoverName = `⚙️ ${groupName}-自动`;
       newProxyGroups.push({
         name: autoFailoverName,
-        type: "fallback",
+        type: "fallback", // <--- 关键类型：优先用第一个
         url: "http://www.gstatic.com/generate_204",
-        interval: 600,
-        hidden: true, // 🙈【隐藏】后台故障切换逻辑，不显示
+        
+        // 【参数设定】: 10分钟检查一次主节点是否复活
+        // 实现了“等一会再切换”的需求，防止反复横跳
+        interval: 600, 
+        
+        hidden: true, // 🙈 隐藏
         proxies: [speedTestName, globalFallbackName]
       });
       createdGroupNames.add(autoFailoverName);
@@ -132,7 +141,6 @@ function main(config) {
       newProxyGroups.push({
         name: finalName,
         type: "select",
-        // 这里没有 hidden，显示给用户看
         proxies: [autoFailoverName, globalFallbackName, ...proxiesList]
       });
       createdGroupNames.add(finalName);
@@ -208,7 +216,7 @@ function main(config) {
 
     config["proxy-groups"] = newProxyGroups;
 
-    console.log("🎉 脚本执行成功：已显示全局自动，隐藏中间逻辑组");
+    console.log("🎉 脚本执行成功：已应用故障回切逻辑，例行检查间隔为10分钟");
     return config;
 
   } catch (e) {
