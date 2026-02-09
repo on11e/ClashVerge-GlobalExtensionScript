@@ -1,0 +1,355 @@
+// ================= 配置区域 (Configuration) =================
+
+const TaskList = [
+
+  {
+
+    name: "AI-Global",
+
+    icon: "🤖",
+
+    // 关键词：Emoji 与英文并存，确保匹配覆盖面
+
+    keywords: [
+
+      "新加坡", "Singapore", "SG", "🇸🇬",
+
+      "日本", "Japan", "JP", "🇯🇵",
+
+      "韩国", "Korea", "KR", "🇰🇷",
+
+      "美国", "States", "🇺🇸"
+
+    ],
+
+    domains: [
+
+      // === Claude ===
+
+      "claude.ai", "anthropic.com", "cdn.anthropic.com",
+
+      // === ChatGPT ===
+
+      "openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com", "ai.com",
+
+      "auth0.com", "identrust.com", "sentry.io", "intercom.io",
+
+      // === Google Gemini ===
+
+      "gemini.google.com", "bard.google.com", "aistudio.google.com",
+
+      "generativelanguage.googleapis.com", "makersuite.google.com",
+
+      "googleapis.com", // 补充：Google API 通用域名
+
+      // === Microsoft Copilot ===
+
+      "copilot.microsoft.com", "sydney.bing.com", "edgeservices.bing.com", "www.bing.com"
+
+    ]
+
+  }
+
+];
+
+  
+
+// 🛑 黑名单：防止误杀
+
+const BlockWords = [
+
+  /流量|官网|网址|到期|重置/i,
+
+  /通知|群组?|QQ|TG/i,
+
+  /过期|剩余|expire/i
+
+];
+
+  
+
+// 🏠 直连白名单 (Whitelist Mode)
+
+const DirectList = [
+
+  // === 🟢 腾讯/微信全家桶补全 (修复同步关键) ===
+
+  "servicewechat.com", // 小程序/同步核心
+
+  "qpic.cn", "qlogo.cn", "gtimg.com", "idqqimg.com", "cdn-go.cn", // 静态资源 CDN
+
+  "wechatos.net", "weixinbridge.com", // 系统服务
+
+  // === 🎓 BIT 校内资源 ===
+
+  "bit.cn", "bit.edu.cn", "bitzh.edu.cn",
+
+  // === 🔍 常用大厂 ===
+
+  "baidu.com", "sogou.com", "so.com", "cn.bing.com",
+
+  "163.com", "126.net", "sina.com.cn", "sohu.com", "qq.com",
+
+  "taobao.com", "tmall.com", "jd.com", "pinduoduo.com",
+
+  "alipay.com", "meituan.com", "dianping.com", "suning.com",
+
+  "bilibili.com", "iqiyi.com", "youku.com", "mgtv.com", "douyin.com",
+
+  "kuaishou.com", "yy.com", "huya.com", "douyu.com",
+
+  "weibo.com", "weibo.cn", "zhihu.com", "xiaohongshu.com",
+
+  "tieba.baidu.com", "wechat.com", "weixin.com",
+
+  "aliyun.com", "tencent.com", "huawei.com", "mi.com", "vivo.com", "oppo.com",
+
+  "360.cn", "360safe.com", "chinaz.com", "csdn.net",
+
+  "apple.com.cn", "icloud.com.cn", "dbankcdn.com"
+
+];
+
+  
+
+// ================= 核心逻辑 (Core Logic) =================
+
+function main(config) {
+
+  try {
+
+    // 1. 鲁棒性处理：提取节点
+
+    const rawProxies = (config.proxies || []).map(p => {
+
+      if (!p) return null;
+
+      if (typeof p === 'string') return p;
+
+      return p.name || p.id || null;      
+
+    }).filter(Boolean);
+
+  
+
+    // 2. 预处理规则
+
+    // 2.1 进程级直连 (核武器：解决微信/输入法跨屏同步)
+
+    // 适用于 Windows/macOS 的 Clash/Verge 等客户端
+
+    const processDirectRules = [
+
+      "PROCESS-NAME,WeChat.exe,DIRECT",       // Win 微信
+
+      "PROCESS-NAME,WeChatInput.exe,DIRECT",  // Win 微信输入法
+
+      "PROCESS-NAME,WeChatResource.exe,DIRECT",
+
+      "PROCESS-NAME,WeChat,DIRECT",           // Mac 微信
+
+      "PROCESS-NAME,WeChatInput,DIRECT",      // Mac 微信输入法
+
+      "PROCESS-NAME,WeChatAppEx,DIRECT"       // 小程序进程
+
+    ];
+
+  
+
+    // 2.2 局域网直连 (防止 TUN 模式劫持内网同步流量)
+
+    const lanRules = [
+
+      "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+
+      "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+
+      "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+
+      "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve"
+
+    ];
+
+  
+
+    // 2.3 域名直连
+
+    const directRules = DirectList.map(d => `DOMAIN-SUFFIX,${d.trim().toLowerCase()},DIRECT`);
+
+    const aiRules = [];
+
+    const newProxyGroups = [];
+
+    const createdGroupNames = new Set();
+
+  
+
+    // 3. 任务处理循环
+
+    TaskList.forEach(task => {
+
+      // 3.1 筛选节点
+
+      const keywordsUpper = task.keywords.map(k => k.toUpperCase());
+
+      let matchedProxies = rawProxies.filter(name => {
+
+        const nameUpper = name.toUpperCase();
+
+        if (BlockWords.some(r => r.test(name))) return false;
+
+        return keywordsUpper.some(k => nameUpper.includes(k));
+
+      });
+
+      matchedProxies = [...new Set(matchedProxies)];
+
+  
+
+      // 3.2 构建策略组
+
+      let finalGroupForRules = "";
+
+  
+
+      if (matchedProxies.length > 0) {
+
+        // === 情况 A：找到了节点 ===
+
+        const autoGroupName = `⚙️ ${task.name}-自动`;
+
+        const autoGroup = {
+
+          name: autoGroupName,
+
+          type: "url-test",
+
+          url: "http://www.gstatic.com/generate_204",
+
+          // ⚠️ 优化：增加间隔和容差，避免 Gemini 生成时跳节点断流
+
+          interval: 600,  // 10分钟测一次
+
+          tolerance: 150, // 300ms 差异内不切换
+
+          lazy: true,
+
+          proxies: matchedProxies
+
+        };
+
+        newProxyGroups.push(autoGroup);
+
+        createdGroupNames.add(autoGroupName);
+
+  
+
+        const manualGroupName = `${task.icon} ${task.name}`;
+
+        const manualGroup = {
+
+          name: manualGroupName,
+
+          type: "select",
+
+          proxies: [autoGroupName, ...matchedProxies]
+
+        };
+
+        newProxyGroups.push(manualGroup);
+
+        createdGroupNames.add(manualGroupName);
+
+  
+
+        finalGroupForRules = manualGroupName;
+
+  
+
+      } else {
+
+        // === 情况 B：兜底 ===
+
+        console.log(`[${task.name}] ⚠️ 未找到匹配节点，回退到 DIRECT`);
+
+        const fallbackGroupName = `${task.icon} ${task.name}`;
+
+        const fallbackGroup = {
+
+          name: fallbackGroupName,
+
+          type: "select",
+
+          proxies: ["DIRECT"]
+
+        };
+
+        newProxyGroups.push(fallbackGroup);
+
+        createdGroupNames.add(fallbackGroupName);
+
+        finalGroupForRules = fallbackGroupName;
+
+      }
+
+  
+
+      // 3.3 构建 AI 域名规则
+
+      task.domains.forEach(rawDomain => {
+
+        const domain = rawDomain.trim().toLowerCase();
+
+        aiRules.push(`DOMAIN-SUFFIX,${domain},${finalGroupForRules}`);
+
+      });
+
+    });
+
+  
+
+    // 4. 注入配置
+
+    // 4.1 Proxy Groups
+
+    const existingGroups = (config["proxy-groups"] || []).filter(g => !createdGroupNames.has(g.name));
+
+    config["proxy-groups"] = [ ...newProxyGroups, ...existingGroups ];
+
+  
+
+    // 4.2 Rules
+
+    // ⚠️ 优先级：Process(最硬) > LAN(内网) > AI > Domain直连 > 原有规则
+
+    const allNewRules = [
+
+      ...processDirectRules,
+
+      ...lanRules,
+
+      ...aiRules,
+
+      ...directRules
+
+    ];
+
+    config.rules = [ ...allNewRules, ...(config.rules || []) ];
+
+  
+
+    console.log(`🎉 脚本执行成功：AI规则(${aiRules.length}) | 直连规则(${directRules.length}) | 进程规则已注入`);
+
+    return config;
+
+  
+
+  } catch (e) {
+
+    console.error("❌ 脚本执行出错，已返回原始配置:", e);
+
+    return config;
+
+  }
+
+}
