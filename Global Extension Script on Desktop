@@ -1,9 +1,12 @@
 // ================= 配置区域 (Configuration) =================
+
+// 1. 自定义分组任务 (TaskList)
 const TaskList = [
   {
-    name: "AI-Dev", // AI与开发
+    name: "AI-Global",
     icon: "🤖",
-    // 关键词：使用非CN节点 (SG, JP, KR, US)
+    // 关键词：保留你原有的高质量地区筛选 (SG, JP, KR, US)
+    // ⚠️ 剔除了 HK 和 TW，因为 Google AI 对这两个地区风控最严
     keywords: [
       "新加坡", "Singapore", "SG", "🇸🇬",
       "日本", "Japan", "JP", "🇯🇵",
@@ -11,9 +14,6 @@ const TaskList = [
       "美国", "States", "🇺🇸"
     ],
     domains: [
-      // === GitHub ===
-      "github.com", "githubusercontent.com", "github.io", "githubassets.com",
-      "copilot-proxy.githubusercontent.com",
       // === Claude ===
       "claude.ai", "anthropic.com", "cdn.anthropic.com",
       // === ChatGPT ===
@@ -30,30 +30,25 @@ const TaskList = [
   {
     name: "HK-Media",
     icon: "🎬",
-    // 关键词：严格限制为香港节点
-    keywords: [
-      "香港", "Hong Kong", "HK", "HKG", "🇭🇰"
-    ],
+    // 媒体分组依然优先香港
+    keywords: ["香港", "Hong Kong", "HK", "HKG", "🇭🇰"],
     domains: [
-      // === YouTube ===
-      "youtube.com", "youtu.be", "youtube-nocookie.com",
-      "googlevideo.com", "ytimg.com", "ggpht.com", "gvt1.com",
-      // === Twitter / X ===
+      "youtube.com", "youtu.be", "youtube-nocookie.com", "googlevideo.com", "ytimg.com", "ggpht.com",
       "twitter.com", "x.com", "t.co", "twimg.com",
-      // === Telegram ===
-      "telegram.org", "t.me", "telegram.me", "tx.me"
+      "telegram.org", "t.me", "telegram.me", "tx.me",
+      "netflix.com", "nflxvideo.net", "nflxext.com", "nflxso.net"
     ]
   }
 ];
 
-// 🛑 黑名单：防止误杀
+// 🛑 黑名单
 const BlockWords = [
   /流量|官网|网址|到期|重置/i,
   /通知|群组?|QQ|TG/i,
   /过期|剩余|expire/i
 ];
 
-// 🏠 直连白名单 (Whitelist Mode)
+// 🏠 直连白名单 (完整版 - 包含 BIT 和所有大厂)
 const DirectList = [
   "servicewechat.com", "qpic.cn", "qlogo.cn", "gtimg.com", "idqqimg.com", "cdn-go.cn",
   "wechatos.net", "weixinbridge.com",
@@ -81,12 +76,114 @@ function main(config) {
       return p.name || p.id || null;
     }).filter(Boolean);
 
-    // 过滤掉黑名单节点，得到所有可用节点
-    const allValidProxies = rawProxies.filter(name => {
-      return !BlockWords.some(r => r.test(name));
+    const allValidProxies = rawProxies.filter(name => !BlockWords.some(r => r.test(name)));
+
+    if (allValidProxies.length === 0) {
+      console.log("⚠️ 未找到有效节点，脚本跳过执行");
+      return config;
+    }
+
+    const newProxyGroups = [];
+    const createdGroupNames = new Set(); 
+
+    // === 核心组件 1: 全局自动兜底 (Layer 0) ===
+    // 仅在所有特定节点都挂掉时才使用，且一天只测一次，极度求稳
+    const globalFallbackName = "🚀 全局自动";
+    newProxyGroups.push({
+      name: globalFallbackName,
+      type: "url-test",
+      url: "http://www.gstatic.com/generate_204",
+      interval: 86400, // 24小时
+      tolerance: 150,
+      lazy: true,
+      proxies: allValidProxies
+    });
+    createdGroupNames.add(globalFallbackName);
+
+    // === 核心组件 2: 高级分组生成器 ===
+    // 融合了你的高稳定性设置 (interval: 600, tolerance: 150)
+    function createAdvancedGroup(groupName, icon, proxiesList) {
+      const speedTestName = `⚡ ${groupName}-测速`;
+      
+      // ⚠️ 关键修正：严格应用你的优化参数，防止 IP 乱跳
+      newProxyGroups.push({
+        name: speedTestName,
+        type: "url-test",
+        url: "http://www.gstatic.com/generate_204",
+        interval: 600,  // 10分钟测一次，避免频繁切换
+        tolerance: 150, // 容差大一点，避免因为几十毫秒的波动换节点
+        lazy: true,
+        proxies: proxiesList
+      });
+      createdGroupNames.add(speedTestName);
+
+      // 故障转移层：优先用上面的测速组，挂了才切全局
+      const autoFailoverName = `⚙️ ${groupName}-自动`;
+      newProxyGroups.push({
+        name: autoFailoverName,
+        type: "fallback",
+        url: "http://www.gstatic.com/generate_204",
+        interval: 600,
+        proxies: [speedTestName, globalFallbackName]
+      });
+      createdGroupNames.add(autoFailoverName);
+
+      // 手动选择层
+      const finalName = icon ? `${icon} ${groupName}` : groupName;
+      newProxyGroups.push({
+        name: finalName,
+        type: "select",
+        proxies: [autoFailoverName, globalFallbackName, ...proxiesList]
+      });
+      createdGroupNames.add(finalName);
+
+      return finalName;
+    }
+
+    // 2. 处理 TaskList (AI-Global, HK-Media)
+    const taskRules = [];
+    TaskList.forEach(task => {
+      const keywordsUpper = task.keywords.map(k => k.toUpperCase());
+      let matchedProxies = allValidProxies.filter(name => {
+        const u = name.toUpperCase();
+        return keywordsUpper.some(k => u.includes(k));
+      });
+      matchedProxies = [...new Set(matchedProxies)];
+
+      let finalGroupName = "";
+      if (matchedProxies.length > 0) {
+        finalGroupName = createAdvancedGroup(task.name, task.icon, matchedProxies);
+      } else {
+        // 无节点时回退
+        console.log(`[${task.name}] ⚠️ 无节点，回退到全局`);
+        finalGroupName = `${task.icon} ${task.name}`;
+        newProxyGroups.push({
+          name: finalGroupName,
+          type: "select",
+          proxies: [globalFallbackName]
+        });
+        createdGroupNames.add(finalGroupName);
+      }
+
+      // 生成规则
+      task.domains.forEach(d => {
+        taskRules.push(`DOMAIN-SUFFIX,${d},${finalGroupName}`);
+      });
     });
 
-    // 2. 预处理规则
+    // 3. 原地升级现有分组 (Existing Groups)
+    // 同样应用高稳定性逻辑
+    const existingGroups = config["proxy-groups"] || [];
+    existingGroups.forEach(group => {
+      if (createdGroupNames.has(group.name)) return;
+      if (["select", "url-test", "fallback"].includes(group.type) && group.proxies && group.proxies.length > 0) {
+        createAdvancedGroup(group.name, null, group.proxies);
+      } else {
+        newProxyGroups.push(group);
+      }
+    });
+
+    // 4. 组装规则 (Process -> Lan -> AI -> Direct -> Existing)
     const processDirectRules = [
       "PROCESS-NAME,WeChat.exe,DIRECT",
       "PROCESS-NAME,WeChatInput.exe,DIRECT",
@@ -95,115 +192,29 @@ function main(config) {
       "PROCESS-NAME,WeChatInput,DIRECT",
       "PROCESS-NAME,WeChatAppEx,DIRECT"
     ];
-
     const lanRules = [
       "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
       "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
       "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
       "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve"
     ];
-
     const directRules = DirectList.map(d => `DOMAIN-SUFFIX,${d.trim().toLowerCase()},DIRECT`);
 
-    const aiRules = [];
-    const newProxyGroups = [];
-    const createdGroupNames = new Set();
-
-    // === 新增逻辑：创建全局兜底自动组 ===
-    const globalFallbackName = "🚀 全局自动";
-    const globalFallbackGroup = {
-      name: globalFallbackName,
-      type: "url-test",
-      url: "http://www.gstatic.com/generate_204",
-      // 修改点：86400秒 = 24小时
-      interval: 86400, 
-      tolerance: 150,
-      lazy: true,
-      proxies: allValidProxies.length > 0 ? allValidProxies : ["DIRECT"]
-    };
-    newProxyGroups.push(globalFallbackGroup);
-    createdGroupNames.add(globalFallbackName);
-
-    // 3. 任务处理循环
-    TaskList.forEach(task => {
-      // 3.1 筛选节点
-      const keywordsUpper = task.keywords.map(k => k.toUpperCase());
-
-      let matchedProxies = allValidProxies.filter(name => {
-        const nameUpper = name.toUpperCase();
-        return keywordsUpper.some(k => nameUpper.includes(k));
-      });
-      matchedProxies = [...new Set(matchedProxies)];
-
-      // 3.2 构建策略组
-      let finalGroupForRules = "";
-
-      if (matchedProxies.length > 0) {
-        // 情况 A：找到了特定节点
-        const autoGroupName = `⚙️ ${task.name}-自动`;
-        const autoGroup = {
-          name: autoGroupName,
-          type: "url-test",
-          url: "http://www.gstatic.com/generate_204",
-          interval: 600, // 针对特定地区的自动组，保持10分钟测速，保证该地区节点故障时能快速切换
-          tolerance: 150,
-          lazy: true,
-          proxies: matchedProxies
-        };
-        newProxyGroups.push(autoGroup);
-        createdGroupNames.add(autoGroupName);
-
-        const manualGroupName = `${task.icon} ${task.name}`;
-        const manualGroup = {
-          name: manualGroupName,
-          type: "select",
-          proxies: [autoGroupName, ...matchedProxies, globalFallbackName]
-        };
-        newProxyGroups.push(manualGroup);
-        createdGroupNames.add(manualGroupName);
-
-        finalGroupForRules = manualGroupName;
-
-      } else {
-        // 情况 B：没找到特定节点，回退到全局自动
-        console.log(`[${task.name}] ⚠️ 未找到匹配节点，回退到 ${globalFallbackName}`);
-        
-        const fallbackGroupName = `${task.icon} ${task.name}`;
-        const fallbackGroup = {
-          name: fallbackGroupName,
-          type: "select",
-          proxies: [globalFallbackName] 
-        };
-        newProxyGroups.push(fallbackGroup);
-        createdGroupNames.add(fallbackGroupName);
-        finalGroupForRules = fallbackGroupName;
-      }
-
-      // 3.3 构建域名规则
-      task.domains.forEach(rawDomain => {
-        const domain = rawDomain.trim().toLowerCase();
-        aiRules.push(`DOMAIN-SUFFIX,${domain},${finalGroupForRules}`);
-      });
-    });
-
-    // 4. 注入配置 
-    const existingGroups = (config["proxy-groups"] || []).filter(g => !createdGroupNames.has(g.name));
-    config["proxy-groups"] = [...newProxyGroups, ...existingGroups];
-
-    const allNewRules = [
+    config.rules = [
       ...processDirectRules,
       ...lanRules,
-      ...aiRules,
-      ...directRules
+      ...taskRules,
+      ...directRules,
+      ...(config.rules || [])
     ];
 
-    config.rules = [...allNewRules, ...(config.rules || [])];
+    config["proxy-groups"] = newProxyGroups;
 
-    console.log(`🎉 脚本执行成功：全局自动测速间隔已设为24小时`);
+    console.log("🎉 脚本执行成功：已恢复高稳定性设置(Interval:600/Tolerance:150)");
     return config;
 
   } catch (e) {
-    console.error("❌ 脚本执行出错，已返回原始配置:", e);
+    console.error("❌ 脚本错误:", e);
     return config;
   }
 }
