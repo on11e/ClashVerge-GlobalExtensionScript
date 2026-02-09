@@ -5,8 +5,7 @@ const TaskList = [
   {
     name: "AI-Global",
     icon: "🤖",
-    // 关键词：保留你原有的高质量地区筛选 (SG, JP, KR, US)
-    // ⚠️ 剔除了 HK 和 TW，因为 Google AI 对这两个地区风控最严
+    // 关键词：保留高质量地区筛选 (SG, JP, KR, US)
     keywords: [
       "新加坡", "Singapore", "SG", "🇸🇬",
       "日本", "Japan", "JP", "🇯🇵",
@@ -48,7 +47,7 @@ const BlockWords = [
   /过期|剩余|expire/i
 ];
 
-// 🏠 直连白名单 (完整版 - 包含 BIT 和所有大厂)
+// 🏠 直连白名单 (完整版)
 const DirectList = [
   "servicewechat.com", "qpic.cn", "qlogo.cn", "gtimg.com", "idqqimg.com", "cdn-go.cn",
   "wechatos.net", "weixinbridge.com",
@@ -87,52 +86,53 @@ function main(config) {
     const createdGroupNames = new Set(); 
 
     // === 核心组件 1: 全局自动兜底 (Layer 0) ===
-    // 仅在所有特定节点都挂掉时才使用，且一天只测一次，极度求稳
     const globalFallbackName = "🚀 全局自动";
     newProxyGroups.push({
       name: globalFallbackName,
       type: "url-test",
       url: "http://www.gstatic.com/generate_204",
-      interval: 86400, // 24小时
+      interval: 86400, // 24小时测一次
       tolerance: 150,
       lazy: true,
+      // ⚠️ 修改点：这里去掉了 hidden: true，让它显示出来
       proxies: allValidProxies
     });
     createdGroupNames.add(globalFallbackName);
 
     // === 核心组件 2: 高级分组生成器 ===
-    // 融合了你的高稳定性设置 (interval: 600, tolerance: 150)
     function createAdvancedGroup(groupName, icon, proxiesList) {
+      // 1. 纯净测速组 (Layer 1)
       const speedTestName = `⚡ ${groupName}-测速`;
-      
-      // ⚠️ 关键修正：严格应用你的优化参数，防止 IP 乱跳
       newProxyGroups.push({
         name: speedTestName,
         type: "url-test",
         url: "http://www.gstatic.com/generate_204",
-        interval: 600,  // 10分钟测一次，避免频繁切换
-        tolerance: 150, // 容差大一点，避免因为几十毫秒的波动换节点
+        interval: 600,
+        tolerance: 150,
         lazy: true,
+        hidden: true, // 🙈【隐藏】后台测速逻辑，不显示
         proxies: proxiesList
       });
       createdGroupNames.add(speedTestName);
 
-      // 故障转移层：优先用上面的测速组，挂了才切全局
+      // 2. 故障转移组 (Layer 2)
       const autoFailoverName = `⚙️ ${groupName}-自动`;
       newProxyGroups.push({
         name: autoFailoverName,
         type: "fallback",
         url: "http://www.gstatic.com/generate_204",
         interval: 600,
+        hidden: true, // 🙈【隐藏】后台故障切换逻辑，不显示
         proxies: [speedTestName, globalFallbackName]
       });
       createdGroupNames.add(autoFailoverName);
 
-      // 手动选择层
+      // 3. 手动选择层 (Layer 3 - 用户界面)
       const finalName = icon ? `${icon} ${groupName}` : groupName;
       newProxyGroups.push({
         name: finalName,
         type: "select",
+        // 这里没有 hidden，显示给用户看
         proxies: [autoFailoverName, globalFallbackName, ...proxiesList]
       });
       createdGroupNames.add(finalName);
@@ -140,7 +140,7 @@ function main(config) {
       return finalName;
     }
 
-    // 2. 处理 TaskList (AI-Global, HK-Media)
+    // 2. 处理 TaskList
     const taskRules = [];
     TaskList.forEach(task => {
       const keywordsUpper = task.keywords.map(k => k.toUpperCase());
@@ -154,7 +154,7 @@ function main(config) {
       if (matchedProxies.length > 0) {
         finalGroupName = createAdvancedGroup(task.name, task.icon, matchedProxies);
       } else {
-        // 无节点时回退
+        // 无节点直接回退
         console.log(`[${task.name}] ⚠️ 无节点，回退到全局`);
         finalGroupName = `${task.icon} ${task.name}`;
         newProxyGroups.push({
@@ -165,14 +165,12 @@ function main(config) {
         createdGroupNames.add(finalGroupName);
       }
 
-      // 生成规则
       task.domains.forEach(d => {
         taskRules.push(`DOMAIN-SUFFIX,${d},${finalGroupName}`);
       });
     });
 
-    // 3. 原地升级现有分组 (Existing Groups)
-    // 同样应用高稳定性逻辑
+    // 3. 原地升级现有分组
     const existingGroups = config["proxy-groups"] || [];
     existingGroups.forEach(group => {
       if (createdGroupNames.has(group.name)) return;
@@ -183,7 +181,7 @@ function main(config) {
       }
     });
 
-    // 4. 组装规则 (Process -> Lan -> AI -> Direct -> Existing)
+    // 4. 组装规则
     const processDirectRules = [
       "PROCESS-NAME,WeChat.exe,DIRECT",
       "PROCESS-NAME,WeChatInput.exe,DIRECT",
@@ -210,7 +208,7 @@ function main(config) {
 
     config["proxy-groups"] = newProxyGroups;
 
-    console.log("🎉 脚本执行成功：已恢复高稳定性设置(Interval:600/Tolerance:150)");
+    console.log("🎉 脚本执行成功：已显示全局自动，隐藏中间逻辑组");
     return config;
 
   } catch (e) {
