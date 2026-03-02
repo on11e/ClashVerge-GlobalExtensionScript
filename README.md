@@ -3,7 +3,7 @@
 
 ## Feature
 分组包括AI和社交媒体
-- AI分组（Gemini、GPT、Claude等）使用新加坡/日本/美国等地的节点（香港等地容易被block）
+- AI分组（Gemini、GPT、Claude、NotebookLM、Github等）使用新加坡/日本/美国等地的节点（香港等地容易被block）
 - 国外社交媒体分组（X、telegram、youtube等）使用香港节点（速度快且没有block）
 - 全局自动模式：
   1. 如果机场没有以上地区的节点，则使用延迟最低节点。
