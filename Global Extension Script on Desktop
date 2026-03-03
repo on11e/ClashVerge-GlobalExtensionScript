@@ -25,7 +25,11 @@ const TaskList = [
       // === Microsoft Copilot ===
       "copilot.microsoft.com", "sydney.bing.com", "edgeservices.bing.com", "www.bing.com",
       // === GitHub ===
-      "github.com", "github.io", "githubassets.com", "githubusercontent.com", "githubapp.com"
+      "github.com", "github.io", "githubassets.com", "githubusercontent.com", "githubapp.com",
+      // === Grok ===
+      "grok.com", "x.ai",
+      // === Perplexity ===
+      "perplexity.ai"
     ]
   },
   {
