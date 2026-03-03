@@ -1,170 +1,220 @@
+// ================= 配置区域 (Configuration) =================
+
+// 1. 核心运行参数 (融合手机端优秀特性)
+const MAX_PEERS = 80; // 限制测速节点上限，极大节省手机电量和 CPU 性能
+const BlockWords = /流量|官网|网址|到期|重置|过期|通知|群组?|QQ|TG|subscription|aff|专线/i;
+
+// 2. 自定义分组任务 (TaskList)
+const TaskList = [
+  {
+    name: "AI与搜索", // 统一命名格式
+    icon: "🤖",
+    // 关键词：保留高质量地区筛选，融合了两端的关键字
+    keywords: ["新加坡", "Singapore", "SG", "🇸🇬", "日本", "Japan", "JP", "🇯🇵", "韩国", "Korea", "KR", "🇰🇷", "美国", "States", "🇺🇸", "台湾", "TW", "Taiwan"],
+    domains: [
+      // === AI 服务 ===
+      "claude.ai", "anthropic.com", "cdn.anthropic.com",
+      "openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com", "ai.com", "auth0.com", "identrust.com", "sentry.io", "intercom.io",
+      "gemini.google.com", "bard.google.com", "aistudio.google.com", "generativelanguage.googleapis.com", "makersuite.google.com", "googleapis.com", "googleapis.cn", "services.googleapis.cn", "notebooklm.google.com",
+      "copilot.microsoft.com", "sydney.bing.com", "edgeservices.bing.com", "www.bing.com", "bing.com",
+      "grok.com", "perplexity.ai", "x.ai", "gvt1.com", "segment.io", "xn--ngstr-lra8j.com",
+      // === 开发者服务 (GitHub 等) ===
+      "github.com", "github.io", "githubassets.com", "githubusercontent.com", "githubapp.com"
+    ],
+    ips: [],
+    // ！！！ 在这里新增了 ai.x.grok ！！！
+    processNames: ["com.anthropic.claude", "ai.x.grok"]
+  },
+  {
+    name: "视频社交",
+    icon: "📺",
+    // 媒体分组依然优先香港
+    keywords: ["香港", "Hong Kong", "HK", "HKG", "🇭🇰"],
+    domains: [
+      "youtube.com", "youtu.be", "youtube-nocookie.com", "googlevideo.com", "ytimg.com", "ggpht.com",
+      "twitter.com", "x.com", "t.co", "twimg.com",
+      "telegram.org", "t.me", "telegram.me", "tx.me",
+      "netflix.com", "nflxvideo.net", "nflxext.com", "nflxso.net",
+      "discord.com", "discordapp.com", "discordapp.net", "discord.gg",
+      "reddit.com", "redd.it", "redditmedia.com", "quora.com",
+      "instagram.com", "cdninstagram.com", "facebook.com", "tiktok.com"
+    ],
+    ips: [
+      "91.108.0.0/16", "149.154.160.0/20", "2001:b28:f23d::/48", "2001:67c:4e8::/48", "2001:b28:f23f::/48"
+    ],
+    processNames: []
+  }
+];
+
+// 3. 🏠 直连白名单 (完整版 - 防止国内 App 变慢)
+const DirectList = [
+  "servicewechat.com", "qpic.cn", "qlogo.cn", "gtimg.com", "idqqimg.com", "cdn-go.cn", "wechatos.net", "weixinbridge.com",
+  "bit.cn", "bit.edu.cn", "bitzh.edu.cn",
+  "baidu.com", "sogou.com", "so.com", "cn.bing.com",
+  "163.com", "126.net", "sina.com.cn", "sohu.com", "qq.com",
+  "taobao.com", "tmall.com", "jd.com", "pinduoduo.com",
+  "alipay.com", "meituan.com", "dianping.com", "suning.com",
+  "bilibili.com", "iqiyi.com", "youku.com", "mgtv.com", "douyin.com", "kuaishou.com", "yy.com", "huya.com", "douyu.com",
+  "weibo.com", "weibo.cn", "zhihu.com", "xiaohongshu.com", "tieba.baidu.com", "wechat.com", "weixin.com",
+  "aliyun.com", "tencent.com", "huawei.com", "mi.com", "vivo.com", "oppo.com",
+  "360.cn", "360safe.com", "chinaz.com", "csdn.net", "apple.com.cn", "icloud.com.cn", "dbankcdn.com"
+];
+
+// ================= 核心逻辑 (Core Logic) =================
 const main = (config) => {
-  // ================= 0. 环境检测与基础设置 =================
-  const engine = config?.meta?.engine?.toLowerCase() || "";
-  const IS_CLASH_META = engine.includes("meta") || engine.includes("mihomo") || engine.includes("stash");
+  try {
+    // === 0. 环境检测 ===
+    const engine = config?.meta?.engine?.toLowerCase() || "";
+    const IS_CLASH_META = engine.includes("meta") || engine.includes("mihomo") || engine.includes("stash");
 
-  const BlockWords = /流量|官网|网址|到期|重置|过期|通知|群|subscription|aff|专线/i;
+    // === 1. 提取并清洗节点 ===
+    const rawProxies = (config.proxies || []).map(p => {
+      if (!p) return null;
+      if (typeof p === 'string') return p;
+      return p.name || p.ps || p.id || null;
+    }).filter(Boolean);
 
-  // ================= 1. 核心工具函数 =================
-  const normalizeProxies = (proxies = []) => {
-    return [...new Set((proxies || [])
-      .map(p => {
-        if (typeof p === 'string') return p;
-        return p?.name ?? p?.ps ?? null;
-      })
-      .filter(name => typeof name === 'string' && name.trim() !== "")
-      .filter(name => !BlockWords.test(name))
-    )];
-  };
+    const allValidProxies = [...new Set(rawProxies.filter(name => typeof name === 'string' && name.trim() !== "" && !BlockWords.test(name)))];
 
-  const allProxies = normalizeProxies(config.proxies);
-  if (allProxies.length === 0) return config;
+    if (allValidProxies.length === 0) {
+      console.log("⚠️ 未找到有效节点，脚本跳过执行");
+      return config;
+    }
 
-  // ================= 2. 节点筛选 =================
-  
-  const MAX_PEERS = 80;
-  const performanceSafeProxies = allProxies.slice(0, MAX_PEERS);
+    // 全局兜底节点池 (同样限制数量以防万一)
+    const performanceSafeProxies = allValidProxies.slice(0, MAX_PEERS);
 
-  // 1. AI 组 (严格限制：新/日/美/台)
-  const aiKeywords = /新加坡|SG|Singapore|日本|JP|Japan|美国|US|States|台湾|TW|Taiwan/i;
-  const aiProxies = allProxies.filter(name => aiKeywords.test(name));
-  const safeAiProxies = aiProxies.length > 0 ? aiProxies.slice(0, MAX_PEERS) : performanceSafeProxies;
+    const newProxyGroups = [];
+    const createdGroupNames = new Set(); 
 
-  // 2. 香港组 (社交主力 & TG)
-  const hkKeywords = /香港|HK|Hong Kong/i;
-  const hkProxies = allProxies.filter(name => hkKeywords.test(name));
-  const safeHkProxies = hkProxies.length > 0 ? hkProxies.slice(0, MAX_PEERS) : performanceSafeProxies;
+    // === 核心组件 1: 全局自动兜底 (Layer 0) ===
+    const globalFallbackName = "🚀 全局自动";
+    newProxyGroups.push({
+      name: globalFallbackName,
+      type: "url-test",
+      url: "http://www.gstatic.com/generate_204",
+      interval: 86400, // 极低频测速，仅作兜底
+      tolerance: 150,
+      lazy: true,      // 省电核心
+      proxies: performanceSafeProxies
+    });
+    createdGroupNames.add(globalFallbackName);
 
-  // 3. TG 组 (已删除，直接复用香港组或 Social 组)
+    // === 核心组件 2: 电脑端三层防抖架构 (Layer 1~3) ===
+    const createAdvancedGroup = (groupName, icon, proxiesList) => {
+      // 截断该组的节点数，保留手机端性能优势
+      const safeProxiesList = proxiesList.slice(0, MAX_PEERS);
+      
+      // Layer 1. 纯净测速组
+      const speedTestName = `⚡ ${groupName}-测速`;
+      newProxyGroups.push({
+        name: speedTestName,
+        type: "url-test",
+        url: "http://www.gstatic.com/generate_204",
+        interval: 600, 
+        tolerance: 150, 
+        lazy: true,   // 省电核心：不使用时不测速
+        hidden: true, 
+        proxies: safeProxiesList.length > 0 ? safeProxiesList : performanceSafeProxies
+      });
+      createdGroupNames.add(speedTestName);
 
-  // ================= 3. 策略组定义 =================
-  const newGroups = [];
+      // Layer 2. 故障转移组
+      const autoFailoverName = `⚙️ ${groupName}-自动`;
+      newProxyGroups.push({
+        name: autoFailoverName,
+        type: "fallback", // 优先用第一个，防横跳核心
+        url: "http://www.gstatic.com/generate_204",
+        interval: 600, 
+        hidden: true, 
+        proxies: [speedTestName, globalFallbackName]
+      });
+      createdGroupNames.add(autoFailoverName);
 
-  // ⚙️ AI 自动优选 (极速模式)
-  newGroups.push({
-    name: "⚙️ AI-自动优选",
-    type: "url-test",
-    url: "https://www.gstatic.com/generate_204", 
-    interval: 600, 
-    tolerance: 150, 
-    lazy: false,    // 极速响应
-    proxies: safeAiProxies 
-  });
+      // Layer 3. 手动选择层 (用户界面)
+      const finalName = icon ? `${icon} ${groupName}` : groupName;
+      newProxyGroups.push({
+        name: finalName,
+        type: "select",
+        proxies: [autoFailoverName, globalFallbackName, ...(safeProxiesList.length > 0 ? safeProxiesList : performanceSafeProxies)]
+      });
+      createdGroupNames.add(finalName);
 
-  // ⚙️ 香港 自动优选 (社交 & TG 极速模式)
-  newGroups.push({
-    name: "⚙️ 香港-自动优选",
-    type: "url-test",
-    url: "https://www.gstatic.com/generate_204", 
-    interval: 600, 
-    tolerance: 50,  
-    lazy: false,    // 极速响应
-    proxies: safeHkProxies
-  });
+      return finalName;
+    };
 
-  // (已删除 ⚙️ TG-自动优选)
+    // === 2. 处理 TaskList 生成策略组和规则 ===
+    const taskRules = [];
+    TaskList.forEach(task => {
+      const keywordsUpper = task.keywords.map(k => k.toUpperCase());
+      let matchedProxies = allValidProxies.filter(name => {
+        const u = name.toUpperCase();
+        return keywordsUpper.some(k => u.includes(k));
+      });
 
-  // 🕹️ 主策略组
-  newGroups.push({
-    name: "🤖 AI与搜索",
-    type: "select",
-    proxies: ["⚙️ AI-自动优选", ...safeAiProxies] 
-  });
+      const finalGroupName = createAdvancedGroup(task.name, task.icon, matchedProxies);
 
-  // 📺 视频社交 (兼管 Telegram)
-  newGroups.push({
-    name: "📺 视频社交",
-    type: "select",
-    // 逻辑：优先走香港自动优选 -> 手动香港 -> AI 组兜底
-    proxies: ["⚙️ 香港-自动优选", ...safeHkProxies, "⚙️ AI-自动优选"] 
-  });
+      // 绑定域名规则
+      task.domains.forEach(d => taskRules.push(`DOMAIN-SUFFIX,${d},${finalGroupName}`));
+      // 绑定 IP 规则 (如 Telegram)
+      task.ips.forEach(ip => taskRules.push(`IP-CIDR,${ip},${finalGroupName}`));
+      task.ips.forEach(ip => taskRules.push(`IP-CIDR6,${ip},${finalGroupName}`));
+      // 绑定进程规则 (如 Claude 客户端)
+      task.processNames.forEach(p => taskRules.push(`PROCESS-NAME,${p},${finalGroupName}`));
+    });
 
-  // (已删除 📲 Telegram 策略组)
+    // === 3. 组装最终规则集 ===
+    
+    // 特性：拦截 QUIC 防止 YouTube 降画质 (仅 Meta 核心生效)
+    const QuicBlockRules = IS_CLASH_META ? [
+      "AND,((DST-PORT,443),(NETWORK,UDP),(DOMAIN-KEYWORD,google)),REJECT",
+      "AND,((DST-PORT,443),(NETWORK,UDP),(DOMAIN-KEYWORD,gvt)),REJECT"
+    ] : [];
 
-  newGroups.push({
-    name: "🛑 拦截",
-    type: "select",
-    proxies: ["REJECT"]
-  });
+    const processDirectRules = [
+      "PROCESS-NAME,WeChat.exe,DIRECT",
+      "PROCESS-NAME,WeChatInput.exe,DIRECT",
+      "PROCESS-NAME,WeChatResource.exe,DIRECT",
+      "PROCESS-NAME,WeChat,DIRECT",
+      "PROCESS-NAME,WeChatInput,DIRECT",
+      "PROCESS-NAME,WeChatAppEx,DIRECT"
+    ];
 
-  // 清洗旧配置
-  if (!config["proxy-groups"]) config["proxy-groups"] = [];
-  config["proxy-groups"] = config["proxy-groups"].filter(
-    oldGroup => !newGroups.some(newGroup => newGroup.name === oldGroup.name)
-  );
-  config["proxy-groups"].unshift(...newGroups);
+    const lanRules = [
+      "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+      "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+      "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+      "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve"
+    ];
 
-  // ================= 4. 规则集 =================
-  
-  const QuicBlockRules = IS_CLASH_META ? [
-    "AND,((DST-PORT,443),(NETWORK,UDP),(DOMAIN-KEYWORD,google)),🛑 拦截",
-    "AND,((DST-PORT,443),(NETWORK,UDP),(DOMAIN-KEYWORD,gvt)),🛑 拦截"
-  ] : [];
+    const directRules = DirectList.map(d => `DOMAIN-SUFFIX,${d.trim().toLowerCase()},DIRECT`);
 
-  const AiRules = [
-    "PROCESS-NAME,com.anthropic.claude,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,segment.io,🤖 AI与搜索", 
-    "DOMAIN-SUFFIX,sentry.io,🤖 AI与搜索",
-    "DOMAIN-KEYWORD,claude,🤖 AI与搜索",
-    "DOMAIN-KEYWORD,anthropic,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,services.googleapis.cn,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,googleapis.cn,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,xn--ngstr-lra8j.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,gvt1.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,notebooklm.google.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,gemini.google.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,bard.google.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,copilot.microsoft.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,bing.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,openai.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,chatgpt.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,perplexity.ai,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,googleapis.com,🤖 AI与搜索",
-    "DOMAIN-SUFFIX,x.ai,🤖 AI与搜索"
-  ];
+    // === 4. 替换原配置 ===
+    // 插入拦截组供 QUIC 使用
+    newProxyGroups.push({ name: "🛑 拦截", type: "select", proxies: ["REJECT"] });
 
-  // 🟢 修改：Telegram 规则指向 "📺 视频社交"
-  const TgRules = [
-    "DOMAIN-SUFFIX,telegram.org,📺 视频社交",
-    "DOMAIN-SUFFIX,telegram.me,📺 视频社交",
-    "DOMAIN-SUFFIX,t.me,📺 视频社交",
-    "IP-CIDR,91.108.0.0/16,📺 视频社交",
-    "IP-CIDR,149.154.160.0/20,📺 视频社交",
-    "IP-CIDR6,2001:b28:f23d::/48,📺 视频社交",
-    "IP-CIDR6,2001:67c:4e8::/48,📺 视频社交",
-    "IP-CIDR6,2001:b28:f23f::/48,📺 视频社交"
-  ];
+    // 清洗并合并旧的分组
+    if (!config["proxy-groups"]) config["proxy-groups"] = [];
+    config["proxy-groups"] = config["proxy-groups"].filter(
+      oldGroup => !createdGroupNames.has(oldGroup.name) && oldGroup.name !== "🛑 拦截"
+    );
+    config["proxy-groups"].unshift(...newProxyGroups);
 
-  const SocialRules = [
-    "DOMAIN-SUFFIX,discord.com,📺 视频社交",
-    "DOMAIN-SUFFIX,discordapp.com,📺 视频社交",
-    "DOMAIN-SUFFIX,discordapp.net,📺 视频社交",
-    "DOMAIN-SUFFIX,discord.gg,📺 视频社交",
-    "DOMAIN-SUFFIX,reddit.com,📺 视频社交",
-    "DOMAIN-SUFFIX,redd.it,📺 视频社交",
-    "DOMAIN-SUFFIX,redditmedia.com,📺 视频社交",
-    "DOMAIN-SUFFIX,quora.com,📺 视频社交",
-    "DOMAIN-SUFFIX,instagram.com,📺 视频社交",
-    "DOMAIN-SUFFIX,cdninstagram.com,📺 视频社交",
-    "DOMAIN-SUFFIX,facebook.com,📺 视频社交",
-    "DOMAIN-SUFFIX,twitter.com,📺 视频社交",
-    "DOMAIN-SUFFIX,x.com,📺 视频社交",
-    "DOMAIN-SUFFIX,tiktok.com,📺 视频社交",
-    "DOMAIN-SUFFIX,youtube.com,📺 视频社交",
-    "DOMAIN-SUFFIX,googlevideo.com,📺 视频社交",
-    "DOMAIN-SUFFIX,youtu.be,📺 视频社交",
-    "DOMAIN-SUFFIX,netflix.com,📺 视频社交"
-  ];
+    // 合并规则
+    config.rules = [
+      ...QuicBlockRules,
+      ...processDirectRules,
+      ...lanRules,
+      ...directRules,
+      ...taskRules,
+      ...(config.rules || [])
+    ];
 
-  // ================= 5. 规则合并 =================
-  const finalRules = [
-    ...QuicBlockRules,
-    ...TgRules,
-    ...AiRules,
-    ...SocialRules, 
-    ...(config.rules || []) 
-  ];
+    console.log("🎉 脚本执行成功：双端融合版本已加载！已开启防抖、省电模式及 QUIC 拦截。");
+    return config;
 
-  config.rules = finalRules;
-  return config;
+  } catch (e) {
+    console.error("❌ 脚本错误:", e);
+    return config;
+  }
 };
