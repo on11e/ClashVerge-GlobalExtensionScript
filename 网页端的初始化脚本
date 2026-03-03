@@ -1,0 +1,8 @@
+// 默认的基础扩展脚本
+function main(config) {
+  // config 是你的订阅原始配置对象
+  // 在这里可以编写代码修改 config 的内容
+  
+  // 直接原封不动地返回原始配置
+  return config;
+}
